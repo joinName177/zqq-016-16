@@ -31,6 +31,13 @@ export class LocalSpecimenAdapter implements SpecimenStoragePort {
     localStorage.setItem(SPECIMEN_STORAGE_KEY, JSON.stringify(list));
   }
 
+  removeByNodeIds(nodeIds: string[]): void {
+    if (nodeIds.length === 0) return;
+    const idSet = new Set(nodeIds);
+    const list = this.getAll().filter(s => !idSet.has(s.nodeId));
+    localStorage.setItem(SPECIMEN_STORAGE_KEY, JSON.stringify(list));
+  }
+
   clear(): void {
     localStorage.removeItem(SPECIMEN_STORAGE_KEY);
   }

@@ -1,7 +1,8 @@
-import { CounterfactualTree, LifeSpecimen } from '../core/models';
+import { CounterfactualTree, LifeSpecimen, PruneImpact } from '../core/models';
 import {
   buildCounterfactualTree,
   waterBranch,
+  getPruneImpact,
   pruneBranch,
   harvestSpecimen
 } from '../core/tree-engine';
@@ -14,6 +15,10 @@ export class TreeEngineAdapter implements TreeEnginePort {
 
   water(tree: CounterfactualTree, nodeId: string): CounterfactualTree {
     return waterBranch(tree, nodeId);
+  }
+
+  previewPrune(tree: CounterfactualTree, nodeId: string): PruneImpact | null {
+    return getPruneImpact(tree, nodeId);
   }
 
   prune(tree: CounterfactualTree, nodeId: string): CounterfactualTree {

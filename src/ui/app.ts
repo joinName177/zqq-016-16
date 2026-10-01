@@ -1,9 +1,16 @@
-import { CounterfactualTree, LifeSpecimen, LifeNode } from '../core/models';
+import { CounterfactualTree, LifeSpecimen, LifeNode, PruneImpact } from '../core/models';
+
+export interface PruneImpactView extends PruneImpact {
+  /** 标本馆中将随本次修剪一并移出的标本 */
+  affectedSpecimens: LifeSpecimen[];
+}
 
 export interface TreeUIHandlers {
   onGrowNewTree: (assumption: string) => void;
   onWaterNode: (nodeId: string) => void;
   onPruneNode: (nodeId: string) => void;
+  onConfirmPrune: (nodeId: string) => void;
+  onCancelPrune: () => void;
   onHarvestNode: (nodeId: string) => void;
   onDeleteSpecimen: (id: string) => void;
   onToggleCabinet: (open: boolean) => void;
@@ -15,8 +22,16 @@ export function renderTreeApp(
   specimens: LifeSpecimen[],
   isCabinetOpen: boolean,
   presets: string[],
-  handlers: TreeUIHandlers
+  handlers: TreeUIHandlers,
+  pruneImpact?: PruneImpactView | null
 ) {
+  // 清理上一次渲染挂载的全局 Esc 监听，避免重复打开弹窗时监听器累计
+  const prevKeydown = (container as unknown as { __pruneKeydown?: (e: KeyboardEvent) => void }).__pruneKeydown;
+  if (prevKeydown) {
+    document.removeEventListener('keydown', prevKeydown);
+    delete (container as unknown as { __pruneKeydown?: unknown }).__pruneKeydown;
+  }
+
   const esc = (s: string) =>
     s.replace(/[&<>'"]/g, t => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[t] || t));
 
@@ -91,7 +106,7 @@ export function renderTreeApp(
                     <button class="btn-action btn-water" data-id="${node.id}" title="注入生命力" ${node.isPruned ? 'disabled' : ''}>
                       💧 浇水 (${node.waterCount})
                     </button>
-                    <button class="btn-action btn-prune" data-id="${node.id}" title="剪除此分支">
+                    <button class="btn-action btn-prune" data-id="${node.id}" title="剪除此分支（将级联影响其全部后代）" ${node.isPruned ? 'disabled' : ''}>
                       ✂️ 修剪
                     </button>
                     <button class="btn-action btn-harvest" data-id="${node.id}" title="收录进标本馆">
@@ -159,6 +174,98 @@ export function renderTreeApp(
       `
           : ''
       }
+
+      <!-- Prune Cascade Confirmation Modal -->
+      ${
+        pruneImpact
+          ? `
+        <div class="modal-overlay" id="pruneOverlay">
+          <div class="modal-content prune-modal">
+            <div class="cabinet-header prune-header">
+              <h2>✂️ 修剪级联影响确认</h2>
+            </div>
+
+            <div class="prune-warning">
+              修剪并非只剪断一枝——自该节点向下的整条平行命运支流都将随之枯萎消散，其上定格的标本也会一并移出标本馆。请确认以下影响范围：
+            </div>
+
+            <div class="prune-target">
+              <span class="prune-label">拟剪除枝桠</span>
+              <div class="prune-target-title">${esc(pruneImpact.targetNode.title)}</div>
+              <div class="prune-target-era">${esc(pruneImpact.targetNode.eraLabel)} · ${esc(pruneImpact.targetNode.categoryName)}</div>
+            </div>
+
+            <div class="prune-section">
+              <div class="prune-section-title">
+                🥀 将一同枯萎的后代分支
+                <span class="prune-count">${pruneImpact.descendantNodes.length} 个</span>
+              </div>
+              ${
+                pruneImpact.descendantNodes.length === 0
+                  ? `<div class="prune-empty">该节点之下暂无后代分支。</div>`
+                  : `<div class="prune-descendant-list">
+                      ${[0, 1, 2, 3, 4]
+                        .map(layer => {
+                          const inLayer = pruneImpact.descendantNodes.filter(n => n.layerIndex === layer);
+                          if (inLayer.length === 0) return '';
+                          return `
+                            <div class="prune-era-group">
+                              <div class="prune-era-head">${esc(eraTitles[layer])}（${inLayer.length}）</div>
+                              ${inLayer
+                                .map(
+                                  n => `
+                                <div class="prune-descendant-item" style="--cat-color:${n.color};">
+                                  <span class="prune-dot"></span>
+                                  <span class="prune-descendant-title">${esc(n.title)}</span>
+                                  ${n.eraLabel.includes('奇遇') ? '<span class="prune-twist-tag">奇遇</span>' : ''}
+                                </div>
+                              `
+                                )
+                                .join('')}
+                            </div>
+                          `;
+                        })
+                        .join('')}
+                    </div>`
+              }
+            </div>
+
+            <div class="prune-section">
+              <div class="prune-section-title">
+                🗄️ 将移出标本馆的定格标本
+                <span class="prune-count">${pruneImpact.affectedSpecimens.length} 件</span>
+              </div>
+              ${
+                pruneImpact.affectedSpecimens.length === 0
+                  ? `<div class="prune-empty">该支流上暂无已采集的标本，标本馆不受影响。</div>`
+                  : `<div class="prune-specimen-list">
+                      ${pruneImpact.affectedSpecimens
+                        .map(
+                          s => `
+                        <div class="prune-specimen-item">
+                          <span class="prune-specimen-name">📌 ${esc(s.title)}</span>
+                          <span class="prune-specimen-tag">${esc(s.butterflyTag)}</span>
+                        </div>
+                      `
+                        )
+                        .join('')}
+                    </div>`
+              }
+            </div>
+
+            <div class="prune-actions">
+              <button class="btn-action prune-btn-cancel" id="btnCancelPrune">再想想，暂不修剪</button>
+              <button class="btn-action prune-btn-confirm" id="btnConfirmPrune">
+                ✂️ 确认剪除（${pruneImpact.affectedNodes.length} 个走向${
+                pruneImpact.affectedSpecimens.length > 0 ? ` · ${pruneImpact.affectedSpecimens.length} 件标本` : ''
+              }）
+              </button>
+            </div>
+          </div>
+        </div>
+      `
+          : ''
+      }
     </div>
   `;
 
@@ -170,6 +277,24 @@ export function renderTreeApp(
       handlers.onToggleCabinet(false);
     }
   });
+
+  // Prune cascade confirmation modal
+  const pruneOverlay = container.querySelector('#pruneOverlay');
+  container.querySelector('#btnConfirmPrune')?.addEventListener('click', () => {
+    if (pruneImpact) handlers.onConfirmPrune(pruneImpact.targetNode.id);
+  });
+  const closePrune = () => handlers.onCancelPrune();
+  container.querySelector('#btnCancelPrune')?.addEventListener('click', closePrune);
+  pruneOverlay?.addEventListener('click', e => {
+    if (e.target === pruneOverlay) closePrune();
+  });
+  if (pruneOverlay) {
+    const onKeydown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closePrune();
+    };
+    document.addEventListener('keydown', onKeydown);
+    (container as unknown as { __pruneKeydown?: (e: KeyboardEvent) => void }).__pruneKeydown = onKeydown;
+  }
 
   const inputEl = container.querySelector('#assumptionInput') as HTMLInputElement;
   const triggerGrow = () => {

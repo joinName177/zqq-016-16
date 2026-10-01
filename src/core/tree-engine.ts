@@ -2,7 +2,8 @@ import {
   CounterfactualTree,
   LifeNode,
   LifeSpecimen,
-  LifeCategory
+  LifeCategory,
+  PruneImpact
 } from './models';
 
 const ERA_LABELS = ['起点分歧点', '+1年·涟漪微漾', '+3年·风向转折', '+5年·航道分野', '+10年·宿命标本'];
@@ -185,6 +186,37 @@ export function waterBranch(tree: CounterfactualTree, nodeId: string): Counterfa
   return { ...tree };
 }
 
+/**
+ * 推演一次修剪的级联影响：沿子树收集当前尚未修剪的节点。
+ * 每次均基于树的当前状态实时计算，因此重复打开提示不会重复累计。
+ * @returns 起点不存在时返回 null；起点已修剪时返回 null（无可执行的修剪）
+ */
+export function getPruneImpact(tree: CounterfactualTree, nodeId: string): PruneImpact | null {
+  const target = tree.nodes[nodeId];
+  if (!target || target.isPruned) return null;
+
+  const affectedNodes: LifeNode[] = [];
+  const collect = (node: LifeNode) => {
+    // 已枯萎的枝桠无需重复计入，其子树也必定早已枯萎
+    if (node.isPruned) return;
+    affectedNodes.push(node);
+    node.childrenIds.forEach(childId => {
+      const child = tree.nodes[childId];
+      if (child) collect(child);
+    });
+  };
+
+  collect(target);
+  affectedNodes.sort((a, b) => a.layerIndex - b.layerIndex);
+
+  return {
+    targetNode: target,
+    affectedNodes,
+    affectedNodeIds: affectedNodes.map(n => n.id),
+    descendantNodes: affectedNodes.filter(n => n.id !== target.id)
+  };
+}
+
 export function pruneBranch(tree: CounterfactualTree, nodeId: string): CounterfactualTree {
   const pruneRecursive = (id: string) => {
     const n = tree.nodes[id];
@@ -195,7 +227,11 @@ export function pruneBranch(tree: CounterfactualTree, nodeId: string): Counterfa
   };
 
   pruneRecursive(nodeId);
-  return { ...tree };
+
+  // 级联清理：已被剪除枝桠上定格的标本随枝桠一同移出标本集
+  tree.specimens = tree.specimens.filter(s => !tree.nodes[s.nodeId]?.isPruned);
+
+  return { ...tree, specimens: tree.specimens };
 }
 
 export function harvestSpecimen(tree: CounterfactualTree, nodeId: string): LifeSpecimen {
