@@ -38,3 +38,8 @@ export interface CounterfactualTree {
   createdAt: string;
   specimens: LifeSpecimen[];
 }
+
+export interface PruneImpact {
+  target: LifeNode;
+  descendants: LifeNode[]; // 修剪目标的全部后代（不含目标自身）
+}

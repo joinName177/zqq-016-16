@@ -2,7 +2,8 @@ import {
   CounterfactualTree,
   LifeNode,
   LifeSpecimen,
-  LifeCategory
+  LifeCategory,
+  PruneImpact
 } from './models';
 
 const ERA_LABELS = ['起点分歧点', '+1年·涟漪微漾', '+3年·风向转折', '+5年·航道分野', '+10年·宿命标本'];
@@ -185,16 +186,43 @@ export function waterBranch(tree: CounterfactualTree, nodeId: string): Counterfa
   return { ...tree };
 }
 
-export function pruneBranch(tree: CounterfactualTree, nodeId: string): CounterfactualTree {
-  const pruneRecursive = (id: string) => {
+/**
+ * 收集以 nodeId 为根的整棵子树（含自身），按代际层稳定排序。
+ * 供修剪级联标记与修剪影响预览共用。
+ */
+export function collectSubtree(tree: CounterfactualTree, nodeId: string): LifeNode[] {
+  const result: LifeNode[] = [];
+  const walk = (id: string) => {
     const n = tree.nodes[id];
     if (!n) return;
+    result.push(n);
+    n.childrenIds.forEach(walk);
+  };
+  walk(nodeId);
+  return result.sort((a, b) => a.layerIndex - b.layerIndex);
+}
+
+/** 预览修剪的级联影响，不修改树状态 */
+export function previewPrune(tree: CounterfactualTree, nodeId: string): PruneImpact | null {
+  const target = tree.nodes[nodeId];
+  if (!target) return null;
+  const subtree = collectSubtree(tree, nodeId);
+  return { target, descendants: subtree.slice(1) };
+}
+
+export function pruneBranch(tree: CounterfactualTree, nodeId: string): CounterfactualTree {
+  const subtree = collectSubtree(tree, nodeId);
+  if (subtree.length === 0) return tree;
+
+  const prunedIds = new Set(subtree.map(n => n.id));
+  subtree.forEach(n => {
     n.isPruned = true;
     n.vitality = 0;
-    n.childrenIds.forEach(pruneRecursive);
-  };
+  });
 
-  pruneRecursive(nodeId);
+  // 同步摘除已随枝桠消亡的在树标本记录
+  tree.specimens = tree.specimens.filter(s => !prunedIds.has(s.nodeId));
+
   return { ...tree };
 }
 

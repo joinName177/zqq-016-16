@@ -3,6 +3,7 @@ import {
   buildCounterfactualTree,
   waterBranch,
   pruneBranch,
+  previewPrune,
   harvestSpecimen
 } from '../core/tree-engine';
 import { TreeEnginePort } from '../ports/tree-engine.port';
@@ -18,6 +19,10 @@ export class TreeEngineAdapter implements TreeEnginePort {
 
   prune(tree: CounterfactualTree, nodeId: string): CounterfactualTree {
     return pruneBranch(tree, nodeId);
+  }
+
+  previewPrune(tree: CounterfactualTree, nodeId: string) {
+    return previewPrune(tree, nodeId);
   }
 
   harvest(tree: CounterfactualTree, nodeId: string): LifeSpecimen {

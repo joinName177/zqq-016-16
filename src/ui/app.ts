@@ -1,9 +1,19 @@
 import { CounterfactualTree, LifeSpecimen, LifeNode } from '../core/models';
 
+/** 修剪确认提示的视图模型：仅描述当前这一次待确认的修剪，不累计历史 */
+export interface PrunePendingViewModel {
+  nodeId: string;
+  targetTitle: string;
+  affectedNodes: LifeNode[];
+  affectedSpecimens: LifeSpecimen[];
+}
+
 export interface TreeUIHandlers {
   onGrowNewTree: (assumption: string) => void;
   onWaterNode: (nodeId: string) => void;
-  onPruneNode: (nodeId: string) => void;
+  onRequestPrune: (nodeId: string) => void;
+  onConfirmPrune: (nodeId: string) => void;
+  onCancelPrune: () => void;
   onHarvestNode: (nodeId: string) => void;
   onDeleteSpecimen: (id: string) => void;
   onToggleCabinet: (open: boolean) => void;
@@ -15,7 +25,8 @@ export function renderTreeApp(
   specimens: LifeSpecimen[],
   isCabinetOpen: boolean,
   presets: string[],
-  handlers: TreeUIHandlers
+  handlers: TreeUIHandlers,
+  prunePending?: PrunePendingViewModel | null
 ) {
   const esc = (s: string) =>
     s.replace(/[&<>'"]/g, t => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[t] || t));
@@ -159,6 +170,78 @@ export function renderTreeApp(
       `
           : ''
       }
+
+      <!-- Prune Cascade Confirmation Modal -->
+      ${
+        prunePending
+          ? `
+        <div class="modal-overlay prune-overlay" id="pruneOverlay">
+          <div class="modal-content prune-modal">
+            <div class="prune-header">
+              <h2>✂️ 修剪级联影响确认</h2>
+              <p class="prune-subtitle">剪除一枝，其下所有平行走向将一并枯萎，封存于这些枝桠上的标本也将随之移出标本馆。</p>
+            </div>
+
+            <div class="prune-target">
+              <span class="prune-label">目标枝桠</span>
+              <div class="prune-target-title">${esc(prunePending.targetTitle)}</div>
+            </div>
+
+            <div class="prune-impact-section">
+              <div class="prune-impact-title">
+                🍂 将一并枯萎的后代走向（${prunePending.affectedNodes.length}）
+              </div>
+              ${
+                prunePending.affectedNodes.length === 0
+                  ? `<div class="prune-impact-empty">该枝桠下暂无后代分叉。</div>`
+                  : `
+                <ul class="prune-impact-list">
+                  ${prunePending.affectedNodes
+                    .map(
+                      n => `
+                    <li>
+                      <span class="prune-era">${esc(n.eraLabel)}</span>
+                      <span class="prune-node-title">${esc(n.title)}</span>
+                    </li>`
+                    )
+                    .join('')}
+                </ul>`
+              }
+            </div>
+
+            <div class="prune-impact-section">
+              <div class="prune-impact-title">
+                🗄️ 将移出标本馆的标本（${prunePending.affectedSpecimens.length}）
+              </div>
+              ${
+                prunePending.affectedSpecimens.length === 0
+                  ? `<div class="prune-impact-empty">这些枝桠上暂无已封存的标本。</div>`
+                  : `
+                <ul class="prune-impact-list prune-specimen-list">
+                  ${prunePending.affectedSpecimens
+                    .map(
+                      s => `
+                    <li>
+                      <span class="prune-era">${esc(s.eraLabel)}</span>
+                      <span class="prune-node-title">${esc(s.title)}</span>
+                    </li>`
+                    )
+                    .join('')}
+                </ul>`
+              }
+            </div>
+
+            <div class="prune-actions">
+              <button class="btn-action prune-cancel-btn" id="btnCancelPrune">再想想，保留枝桠</button>
+              <button class="prune-confirm-btn" id="btnConfirmPrune">
+                确认修剪（${prunePending.affectedNodes.length + 1} 个节点 · ${prunePending.affectedSpecimens.length} 件标本）
+              </button>
+            </div>
+          </div>
+        </div>
+      `
+          : ''
+      }
     </div>
   `;
 
@@ -203,7 +286,7 @@ export function renderTreeApp(
   container.querySelectorAll('.btn-prune').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.getAttribute('data-id');
-      if (id) handlers.onPruneNode(id);
+      if (id) handlers.onRequestPrune(id);
     });
   });
 
@@ -219,5 +302,15 @@ export function renderTreeApp(
       const delId = btn.getAttribute('data-delid');
       if (delId) handlers.onDeleteSpecimen(delId);
     });
+  });
+
+  // Prune confirmation modal
+  const pruneOverlay = container.querySelector('#pruneOverlay');
+  pruneOverlay?.addEventListener('click', e => {
+    if (e.target === pruneOverlay) handlers.onCancelPrune();
+  });
+  container.querySelector('#btnCancelPrune')?.addEventListener('click', () => handlers.onCancelPrune());
+  container.querySelector('#btnConfirmPrune')?.addEventListener('click', () => {
+    if (prunePending) handlers.onConfirmPrune(prunePending.nodeId);
   });
 }
